@@ -1,0 +1,104 @@
+@startuml
+!pragma revision 01
+
+title Basic Authentication Flow with Firebase Auth as a Service with own Backend
+
+participant App
+participant "My Backend Service" as Backend
+database DB
+participant "Firebase Auth" as Firebase
+participant "Google Cloud\nFunction" as GCF
+
+App -> App : user = firebase.currentUser()
+
+alt user == null
+
+App -> Firebase : signInWithPassword(email, password)
+App <-- Firebase : return success | error 
+
+note right App: If error stop flow and alert user
+
+end
+
+note right App : User is signed in and app requests user data.
+
+App -> App : firebaseToken = firebase.currentUser().getToken()
+App -> App : backendToken = getBackEndTokenFromSecureStore()
+
+== ACTION: BEGIN REQUEST ==
+
+App -> Backend : set request(data) \n  headers:\n    Authorization: firebaseToken\n    x-token: backendToken
+
+Backend -> Backend : backendToken = decode(x-token)
+
+alt backendToken == null | expired | invalid
+
+Backend -> GCF : verifyToken(firebaseToken)  
+
+GCF -> Firebase : admin.auth().verifyIdToken(firebaseToken)
+
+GCF <-- Firebase : return  (data | error)
+
+Backend <-- GCF : return (data | error)
+
+
+note over Backend
+  Firebase validates that the token is valid.
+  If it is not then we need the client to generate a new token.
+  Otherwise we regenerate the backendToken.
+end note
+
+alt returned firebase data != null
+
+Backend -> DB : getUser(data.uid)
+Backend <- DB : user
+
+alt backend user == null
+  Backend -> DB : createUser(data.uid)
+  Backend <- DB : user
+end
+
+note over Backend
+  Generate a short lived backendToken (10 mins)
+  storing the userId in the token.
+end note
+Backend -> Backend : backendToken = createBackendToken(user.id);
+
+Backend -> Backend : set response\n  headers:\n    x-token: backendToken;
+
+note over Backend : Continue process request against user.id
+  
+App <-- Backend : return response
+
+App -> App : setBackEndTokenToSecureStore(\n  repsonse.headers["x-token"]\n)
+
+else returned firebase error != null
+
+
+App <-- Backend : return 401 Not Authrorized
+
+App -> Firebase : firebase.currentUser().getIdToken(refresh: true)
+App <-- Firebase : returns firebaseToken (new)
+
+note right App
+  Repeat ACTION: BEGIN REQUEST 
+  (no more than 1 times)
+end note
+
+end
+
+
+else have valid backendToken
+
+Backend -> Backend : userId = backendToken.userId
+
+note over Backend : Continue process request against userId
+  
+
+App <-- Backend : return response
+
+
+end
+
+
+@enduml
