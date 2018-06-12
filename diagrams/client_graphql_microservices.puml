@@ -1,0 +1,51 @@
+@startuml
+
+title Modular Client with Graphql Microservices
+
+package "Client" {
+  [Host] --> [UI Module]
+
+}
+
+
+package "GraphQL App Service (BFF)" {
+  [UI Module] --> BFF_REST : HTTPRequest (Post)\nWith JWTs
+  BFF_REST - [BFF API Gateway] 
+  
+  [BFF API Gateway] --> [BFF GraphQL Service]
+  note bottom of [BFF GraphQL Service]
+    - GraphQL "Stitched" Services
+    - Create App JWT after Firebase
+    JWT Validation
+  end note
+}
+
+package "GraphQL Micro Services (MS)" {
+  [BFF GraphQL Service] -> MS_REST : Forward Request\nWith App JWT
+  MS_REST - [MS API Gateway] 
+  
+  [MS API Gateway] --> [MS GraphQL Service]
+  [MS GraphQL Service] --> [MS Prisma Service]
+  note bottom of [MS Prisma Service]
+    GraphQL "CRUD" operations
+  end note
+}
+
+package "Google + Firebase" {
+  [Host] -> [Firebase Auth] : Authenticate to obtain\nFirebase JWT
+  
+  [BFF GraphQL Service] --> HTTP : Verify Firebase JWT\nIf App JWT Missing/Exired
+
+  HTTP - [Auth Functions]
+  
+  
+  [Auth Functions] --> [Configurations]
+  [Firebase Auth] --> [Configurations]
+}
+
+database "MySql" {
+[MS Prisma Service] -> [Data]
+}
+
+
+@enduml
